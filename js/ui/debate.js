@@ -37,7 +37,7 @@ TELAS.debate = function () {
   }
   var falando = UI.debRes ? null : (s.passos[s.passo] && s.passos[s.passo].tipo === 'responder' ? s.passos[s.passo].de : c.id);
   return '<main class="estudio"><div class="gutter"><div class="estudio-topo" style="max-width:1200px;margin:0 auto"><div class="lado"><span class="ao-vivo">Ao vivo</span><span class="emissora">' + esc(s.emissora) + '</span></div>' +
-    '<span style="color:#9fb0c8">' + (s.segundoTurno ? 'Debate do 2º turno' : 'Debate presidencial') + ' · ' + fmtData(JOGO.cal, s.dia) + ' · audiência estimada de ' + s.audiencia + ' pontos</span></div>' +
+    '<span style="color:#9fb0c8">' + (s.escopo ? 'Debate para ' + (s.escopo.cargo === 'governador' ? 'governador' : 'o Senado') + ' ' + esc(prepUF(s.escopo.uf, 'em')) + (s.segundoTurno && s.escopo.cargo === 'governador' ? ' (2º turno)' : '') : (s.segundoTurno ? 'Debate do 2º turno' : 'Debate presidencial')) + ' · ' + fmtData(JOGO.cal, s.dia) + ' · audiência estimada de ' + s.audiencia + ' pontos</span></div>' +
     pulpitos(s, falando) +
     '<div class="estudio-grade"><div class="pilha">' + transcricao(s.log) + '</div><div>' + mesa + '</div></div></div></main>';
 };
@@ -49,7 +49,8 @@ TELAS.debate_depois = function () {
 function mesaPasso(s, p) {
   var c = jogador(JOGO);
   var adv = s.participantes.filter(function (id) { return id !== c.id; });
-  UI.debAlvo = UI.debAlvo && adv.indexOf(UI.debAlvo) >= 0 ? UI.debAlvo : (alvoDeAtaque(JOGO, c) && adv.indexOf(alvoDeAtaque(JOGO, c).id) >= 0 ? alvoDeAtaque(JOGO, c).id : adv[0]);
+  var sug = alvoNoDebate(JOGO, s, c);
+  UI.debAlvo = UI.debAlvo && adv.indexOf(UI.debAlvo) >= 0 ? UI.debAlvo : (sug && adv.indexOf(sug.id) >= 0 ? sug.id : adv[0]);
   var selAlvo = '<div class="campo"><label for="deb-alvo" style="color:#9fb0c8">Adversário</label><select id="deb-alvo" data-mudar="debCampo" data-k="debAlvo">' + adv.map(function (id) {
     return '<option value="' + id + '"' + (id === UI.debAlvo ? ' selected' : '') + '>' + esc(candPorId(JOGO, id).urna) + '</option>';
   }).join('') + '</select></div>';

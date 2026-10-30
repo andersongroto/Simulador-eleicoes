@@ -10,7 +10,11 @@ var INVEST_TV = {
 };
 
 function atualizarCache(jogo) {
-  jogo._cache = calcularIntencoes(jogo, { rej: true });
+  if (jogo.presDecidido || !candidatosAtivos(jogo).length) {
+    jogo._cache = { ids: [], nac: { nenhum: 0, indeciso: 0 }, uf: {}, seg: null, rej: {} };
+    return jogo._cache;
+  }
+  jogo._cache = calcularIntencoes(jogo, { rej: true, seg: true });
   return jogo._cache;
 }
 
@@ -113,6 +117,7 @@ function iniciarCampanha(jogo) {
   ['datanacao', 'pulso'].forEach(function (inst) { jogo.pesquisas.push(gerarPesquisa(jogo, inst, 0)); });
   atualizarPercepcao(jogo);
   registrarHistorico(jogo);
+  iniciarEstaduais(jogo);
   noticia(jogo, 'Começa oficialmente a campanha eleitoral', 'A partir de hoje estão liberados comícios, carreatas e propaganda na internet. A propaganda no rádio e na TV começa em ' + fmtDataCurta(jogo.cal, jogo.cal.hgpe1[0]) + '.', 'marco');
   iniciarTurno(jogo);
 }
@@ -143,8 +148,9 @@ function iniciarTurno(jogo) {
   var t = turnoAtual(jogo);
   jogo.dia = t[0];
   jogo.agenda = [];
-  jogo.resumoInicio = { noticias: jogo.noticias.length, pesquisas: jogo.pesquisas.length, percepcao: copiar(jogo.percepcao || {}), dinheiro: jogador(jogo).dinheiro };
+  jogo.resumoInicio = { noticias: jogo.noticias.length, pesquisas: jogo.pesquisas.length, pesqEst: jogo.est ? jogo.est.pesqEst.length : 0, percepcao: copiar(jogo.percepcao || {}), dinheiro: jogador(jogo).dinheiro, minha: medidaJogador(jogo).valor };
   candidatosAtivos(jogo).forEach(function (c) { if (!c.jogador) iaEstrategiaTV(jogo, c); });
+  if (jogo.est) candidatosEstaduaisAtivos(jogo).forEach(function (c) { if (!c.jogador) iaEstrategiaTVEst(jogo, c); });
   var jog = jogador(jogo);
   jogo.pendentes = jog.ativo ? sortearEventosJogador(jogo, t[1] - t[0] + 1) : [];
   atualizarCache(jogo);
@@ -187,10 +193,17 @@ function processarTurno(jogo) {
       proc.diaFeito = true;
     }
     var jg = jogador(jogo);
-    if (d === jogo.cal.sabatina && !jogo.sabatinaFeita && jg.ativo && jogo.fase === 'campanha1') {
+    if (d === jogo.cal.sabatina && !jogo.sabatinaFeita && jg.ativo && jg.escopo !== 'estadual' && jogo.fase === 'campanha1') {
       return { tipo: 'sabatina' };
     }
-    var deb = debateNoDia(jogo, d);
+    var debE = jogo.est ? debateEstadualNoDia(jogo, d) : null;
+    if (debE && jogo.debatesFeitos.indexOf(d) < 0 && (!debE.segundo || jogo.fase === 'campanha2') && (debE.segundo || jogo.fase === 'campanha1')) {
+      var se = jogo.debateAtual || iniciarDebate(jogo, debE);
+      if (se.jogadorParticipa) return { tipo: 'debate', sessao: se };
+      jogo.debateAtual = null;
+      jogo.debatesFeitos.push(d);
+    }
+    var deb = jogo.presDecidido ? null : debateNoDia(jogo, d);
     if (deb && jogo.debatesFeitos.indexOf(d) < 0) {
       var s = jogo.debateAtual || iniciarDebate(jogo, deb);
       if (s.jogadorParticipa) return { tipo: 'debate', sessao: s };
@@ -244,6 +257,21 @@ function processarDia(jogo, d) {
   eventosDiarios(jogo);
   verificarDesistencias(jogo, d);
   atualizarCache(jogo);
+  // agenda do jogador nas campanhas estaduais
+  var je = jogador(jogo);
+  if (je && je.escopo === 'estadual' && je.ativo) {
+    jogo.agenda.forEach(function (a) {
+      if (a.dia !== d || a.feito) return;
+      var r = executarAcaoEst(jogo, je, a);
+      a.feito = true; a.resultado = r;
+      if (r) {
+        jogo.resultadosTurno.push({ tipo: 'acao', dia: d, acao: a, res: r });
+        if (r.tipo !== 'neutro' || a.tipo === 'apoio' || a.tipo === 'proposta' || a.tipo === 'presidenciavel') noticia(jogo, r.texto, '', r.tipo === 'bom' ? 'bom' : (r.tipo === 'ruim' ? 'ruim' : 'campanha'), je.id);
+      }
+    });
+  }
+  if (jogo.est) processarDiaEstadual(jogo, d);
+  if (jogo.presDecidido) return;
   pesquisasAgendadas(jogo, d).forEach(function (inst) {
     var p = gerarPesquisa(jogo, inst, d);
     jogo.pesquisas.push(p);
@@ -322,38 +350,55 @@ function encerrarTurno(jogo) {
 
 function realizarEleicao(jogo) {
   var turno = jogo.fase === 'apuracao1' ? 1 : 2;
-  var res = calcularResultado(jogo, turno);
-  if (turno === 1) jogo.resultado1 = res; else jogo.resultado2 = res;
-  return res;
+  if (turno === 1) {
+    jogo.resultado1 = calcularResultado(jogo, 1);
+    if (jogo.est) calcularResultadosEstaduais(jogo, 1);
+    return jogo.resultado1;
+  }
+  if (!jogo.presDecidido) jogo.resultado2 = calcularResultado(jogo, 2);
+  else {
+    jogo.tempo2 = {};
+    ESTADOS.forEach(function (e) { jogo.tempo2[e.uf] = gerarTempoUF(e); });
+  }
+  if (jogo.est) calcularResultadosEstaduais(jogo, 2);
+  return jogo.resultado2;
 }
 
+/* Depois da apuração do 1º turno: define 2º turnos e o próximo passo do jogador. */
 function resolverPrimeiroTurno(jogo) {
   var res = jogo.resultado1;
   var o = res.ordem;
-  if (res.pct[o[0]] > 50) {
+  if (jogo.est) resolverEstaduaisPrimeiroTurno(jogo);
+  var jg = jogador(jogo);
+  var presFim = res.pct[o[0]] > 50;
+  if (presFim) {
     jogo.vencedor = o[0];
-    jogo.fase = 'fim';
-    finalizarJogo(jogo);
-    return 'fim';
+    jogo.presDecidido = true;
+    jogo.finalistas = [o[0]];
+    candidatosAtivos(jogo).forEach(function (c) { c.ativo = false; });
+  } else {
+    jogo.finalistas = [o[0], o[1]];
+    jogo.transf = {};
+    jogo.transf[o[0]] = []; jogo.transf[o[1]] = [];
+    jogo.apoios2 = {};
+    candidatosAtivos(jogo).forEach(function (c) {
+      if (jogo.finalistas.indexOf(c.id) < 0) { c.ativo = false; c.eliminado = true; }
+    });
+    jogo.candidatos.forEach(function (c) { if (c.eliminado && !c.jogador) jogo.apoios2[c.id] = null; });
   }
-  jogo.finalistas = [o[0], o[1]];
-  jogo.transf = {};
-  jogo.transf[o[0]] = []; jogo.transf[o[1]] = [];
-  jogo.apoios2 = {};
-  var jg = jogo.jogadorId;
-  candidatosAtivos(jogo).forEach(function (c) {
-    if (jogo.finalistas.indexOf(c.id) < 0) {
-      c.ativo = false;
-      c.eliminado = true;
-    }
-  });
-  // os eliminados da IA decidem seus apoios (alguns esperam a negociação do jogador)
-  jogo.candidatos.forEach(function (c) {
-    if (!c.eliminado || c.jogador) return;
-    jogo.apoios2[c.id] = null;
-  });
-  jogo.fase = jogo.finalistas.indexOf(jg) >= 0 ? 'entreturnos' : 'eliminado';
-  return jogo.fase;
+  var haSegundo = !presFim || (jogo.govSegundo && jogo.govSegundo.length > 0);
+  var fase;
+  if (jogo.cargo === 'presidente') {
+    if (presFim) fase = haSegundo ? 'acompanhar' : 'fim';
+    else fase = jogo.finalistas.indexOf(jg.id) >= 0 ? 'entreturnos' : 'eliminado';
+  } else {
+    if (jogo.cargo !== 'governador') jg.ativo = false;
+    if (jogo.cargo === 'governador' && jg.ativo && jogo.govSegundo.indexOf(jg.uf) >= 0) fase = 'entreturnosGov';
+    else fase = haSegundo ? 'acompanhar' : 'fim';
+  }
+  jogo.fase = fase;
+  if (fase === 'fim') finalizarJogo(jogo);
+  return fase;
 }
 
 /* Negociação de apoio no 2º turno (jogador finalista pede apoio a um eliminado). */
@@ -385,38 +430,45 @@ function fecharApoiosSegundoTurno(jogo) {
 }
 
 function iniciarCampanha2(jogo) {
-  fecharApoiosSegundoTurno(jogo);
-  var ids = jogo.finalistas;
-  var tv = calcularTempoTV(jogo, ids, true);
-  ids.forEach(function (id) {
-    var c = candPorId(jogo, id);
-    c.dinheiro += TETO_2T * (c.jogador ? DIFICULDADES[jogo.config.dificuldade].dinheiro * 0.75 : 0.75);
-    c.tvSeg = tv[id];
-    c.energia = Math.max(c.energia, 75);
-    c.preparo = 0;
-    UFS.forEach(function (uf) { c.presenca[uf] *= 0.6; });
-  });
+  if (!jogo.presDecidido) {
+    fecharApoiosSegundoTurno(jogo);
+    var ids = jogo.finalistas;
+    var tv = calcularTempoTV(jogo, ids, true);
+    ids.forEach(function (id) {
+      var c = candPorId(jogo, id);
+      c.dinheiro += TETO_2T * (c.jogador ? DIFICULDADES[jogo.config.dificuldade].dinheiro * 0.75 : 0.75);
+      c.tvSeg = tv[id];
+      c.energia = Math.max(c.energia, 75);
+      c.preparo = 0;
+      UFS.forEach(function (uf) { c.presenca[uf] *= 0.6; });
+    });
+  }
+  if (jogo.est) fecharApoiosGovSegundoTurno(jogo);
   jogo.fase = 'campanha2';
   jogo.turnos = montarTurnos(jogo.cal.eleicao1 + 1, jogo.cal.eleicao2, jogo.config.ritmo);
   jogo.turnoIdx = 0;
   jogo.dia = jogo.cal.eleicao1 + 1;
   atualizarCache(jogo);
-  jogo.percepcao = jogo._cache.nac;
-  var p = gerarPesquisa(jogo, 'datanacao', jogo.dia);
-  jogo.pesquisas.push(p);
-  atualizarPercepcao(jogo);
-  registrarHistorico(jogo);
-  noticia(jogo, 'Começa a campanha do 2º turno', candPorId(jogo, ids[0]).urna + ' e ' + candPorId(jogo, ids[1]).urna + ' disputam a Presidência em ' + fmtDataLonga(jogo.cal, jogo.cal.eleicao2) + '.', 'marco');
+  if (!jogo.presDecidido) {
+    jogo.percepcao = jogo._cache.nac;
+    jogo.pesquisas.push(gerarPesquisa(jogo, 'datanacao', jogo.dia));
+    atualizarPercepcao(jogo);
+    registrarHistorico(jogo);
+    noticia(jogo, 'Começa a campanha do 2º turno', candPorId(jogo, jogo.finalistas[0]).urna + ' e ' + candPorId(jogo, jogo.finalistas[1]).urna + ' disputam a Presidência em ' + fmtDataLonga(jogo.cal, jogo.cal.eleicao2) + '.', 'marco');
+  }
+  if (jogo.govSegundo && jogo.govSegundo.length) noticia(jogo, 'Governador: 2º turno em ' + jogo.govSegundo.length + ' estados', jogo.govSegundo.join(', ') + '.', 'marco');
   iniciarTurno(jogo);
 }
 
-/* Quando o jogador é eliminado: o 2º turno é simulado sem ele. */
+/* Quando o jogador não disputa o 2º turno: a campanha corre sem ele. */
 function simularSegundoTurnoAutomatico(jogo) {
   iniciarCampanha2(jogo);
   var guard = 0;
   while (jogo.fase === 'campanha2' && guard++ < 100) {
+    jogo.pendentes = [];
+    jogo.agenda = [];
     var r = processarTurno(jogo);
-    while (r.tipo !== 'fimTurno' && guard++ < 200) {
+    while (r.tipo !== 'fimTurno' && guard++ < 300) {
       if (r.tipo === 'debate') { simularDebateSemJogador(jogo, r.sessao); concluirDebate(jogo, r.sessao); }
       r = processarTurno(jogo);
     }
@@ -425,35 +477,80 @@ function simularSegundoTurnoAutomatico(jogo) {
 }
 
 function resolverSegundoTurno(jogo) {
-  var res = jogo.resultado2;
-  jogo.vencedor = res.ordem[0];
+  if (jogo.resultado2) jogo.vencedor = jogo.resultado2.ordem[0];
+  if (jogo.resEst2) {
+    for (var uf in jogo.resEst2.gov) {
+      var r = jogo.resEst2.gov[uf];
+      r.ids.forEach(function (id) { jogo.est.cands[id].eleito = id === r.ordem[0]; jogo.est.cands[id].ativo = false; });
+    }
+  }
   jogo.fase = 'fim';
   finalizarJogo(jogo);
+}
+
+/* Resultado do jogador na própria disputa. */
+function resultadoJogador(jogo) {
+  var c = jogador(jogo);
+  if (jogo.cargo === 'presidente') return { venceu: jogo.vencedor === c.id };
+  if (jogo.cargo === 'governador') {
+    var r1 = jogo.resEst1.gov[c.uf], r2 = jogo.resEst2 && jogo.resEst2.gov[c.uf];
+    return { venceu: !!c.eleito, r1: r1, r2: r2 };
+  }
+  if (jogo.cargo === 'senador') return { venceu: !!c.eleito, r1: jogo.resEst1.sen[c.uf] };
+  var rp = jogo.resEst1[c.cargo][c.uf];
+  return { venceu: rp.jogador.eleito, rp: rp };
 }
 
 /* Conquistas e pontuação final. */
 function finalizarJogo(jogo) {
   var c = jogador(jogo);
-  var venceu = jogo.vencedor === c.id;
+  var rj = resultadoJogador(jogo);
+  var venceu = rj.venceu;
+  jogo.venceuJogador = venceu;
   var conq = [];
   var r1 = jogo.resultado1;
-  var hist0 = jogo.historico[0] ? jogo.historico[0].v : {};
-  if (venceu) conq.push({ id: 'presidente', nome: 'Presidente da República', desc: 'Venceu a eleição presidencial.' });
-  if (venceu && !jogo.resultado2) conq.push({ id: 'primeiroturno', nome: 'Liquidou no 1º turno', desc: 'Mais de 50% dos votos válidos no 1º turno.' });
-  if (venceu && (hist0[c.id] || 0) < 10) conq.push({ id: 'zebra', nome: 'Zebra histórica', desc: 'Venceu começando com menos de 10% das intenções de voto.' });
-  if (r1 && r1.pct[c.id] !== undefined) {
-    var ganhos = UFS_MAPA.filter(function (uf) { return ordenarPor(r1.uf[uf].votos, r1.ids)[0] === c.id; });
-    if (ganhos.indexOf('SP') >= 0) conq.push({ id: 'sp', nome: 'Locomotiva', desc: 'Venceu em São Paulo no 1º turno.' });
-    var ne = ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE'];
-    if (ne.every(function (u) { return ganhos.indexOf(u) >= 0; })) conq.push({ id: 'nordeste', nome: 'Nordeste fechado', desc: 'Venceu nos nove estados do Nordeste.' });
-    var sul = ['PR', 'SC', 'RS'];
-    if (sul.every(function (u) { return ganhos.indexOf(u) >= 0; })) conq.push({ id: 'sul', nome: 'Dono do Sul', desc: 'Venceu nos três estados do Sul.' });
-    if (ganhos.length >= 20) conq.push({ id: 'nacional', nome: 'Onda nacional', desc: 'Venceu em 20 ou mais estados no 1º turno.' });
+  if (jogo.cargo === 'presidente') {
+    var hist0 = jogo.historico[0] ? jogo.historico[0].v : {};
+    if (venceu) conq.push({ id: 'presidente', nome: 'Presidente da República', desc: 'Venceu a eleição presidencial.' });
+    if (venceu && !jogo.resultado2) conq.push({ id: 'primeiroturno', nome: 'Liquidou no 1º turno', desc: 'Mais de 50% dos votos válidos no 1º turno.' });
+    if (venceu && (hist0[c.id] || 0) < 10) conq.push({ id: 'zebra', nome: 'Zebra histórica', desc: 'Venceu começando com menos de 10% das intenções de voto.' });
+    if (r1 && r1.pct[c.id] !== undefined) {
+      var ganhos = UFS_MAPA.filter(function (uf) { return ordenarPor(r1.uf[uf].votos, r1.ids)[0] === c.id; });
+      if (ganhos.indexOf('SP') >= 0) conq.push({ id: 'sp', nome: 'Locomotiva', desc: 'Venceu em São Paulo no 1º turno.' });
+      var ne = ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE'];
+      if (ne.every(function (u) { return ganhos.indexOf(u) >= 0; })) conq.push({ id: 'nordeste', nome: 'Nordeste fechado', desc: 'Venceu nos nove estados do Nordeste.' });
+      var sul = ['PR', 'SC', 'RS'];
+      if (sul.every(function (u) { return ganhos.indexOf(u) >= 0; })) conq.push({ id: 'sul', nome: 'Dono do Sul', desc: 'Venceu nos três estados do Sul.' });
+      if (ganhos.length >= 20) conq.push({ id: 'nacional', nome: 'Onda nacional', desc: 'Venceu em 20 ou mais estados no 1º turno.' });
+    }
+    if (jogo.resultado2 && jogo.resultado2.ids.indexOf(c.id) >= 0 && r1.ordem[0] !== c.id && venceu) conq.push({ id: 'virada', nome: 'Virada no 2º turno', desc: 'Venceu depois de terminar o 1º turno em segundo lugar.' });
+    if (jogo.resEst1) {
+      var govAliados = UFS_MAPA.filter(function (uf) {
+        var g = (jogo.resEst2 && jogo.resEst2.gov[uf]) || jogo.resEst1.gov[uf];
+        return jogo.est.cands[g.ordem[0]].palanque === c.id;
+      }).length;
+      if (govAliados >= 14) conq.push({ id: 'palanques', nome: 'Maioria dos estados', desc: 'Seus palanques elegeram ' + govAliados + ' governadores.' });
+    }
+  } else {
+    var nomeC = nomeCargo(jogo.cargo, c.genero);
+    if (venceu) conq.push({ id: 'eleito', nome: nomeC + (c.genero === 'F' ? ' eleita' : ' eleito'), desc: 'Venceu a eleição ' + prepUF(c.uf, 'em') + '.' });
+    if (venceu && (jogo.percInicialJog || 0) < 10 && jogo.cargo !== 'depfed' && jogo.cargo !== 'depest') conq.push({ id: 'zebra', nome: 'Zebra', desc: 'Venceu começando com menos de 10% nas pesquisas.' });
+    if (jogo.cargo === 'governador' && venceu && !(jogo.resEst2 && jogo.resEst2.gov[c.uf])) conq.push({ id: 'primeiroturno', nome: 'Liquidou no 1º turno', desc: 'Mais da metade dos votos válidos no 1º turno.' });
+    if (jogo.cargo === 'governador' && venceu && candsDisputa(jogo, c.uf, 'governador', true).some(function (o) { return o.incumbente; })) conq.push({ id: 'derrubou', nome: 'Derrubou o governador', desc: 'Venceu o governador que tentava a reeleição.' });
+    if (jogo.cargo === 'senador' && rj.r1.ordem[0] === c.id) conq.push({ id: 'maisvotado', nome: 'Campeão de votos', desc: 'Foi o mais votado para o Senado no estado.' });
+    if (rj.rp) {
+      var jr = rj.rp.jogador;
+      if (jr.votos >= rj.rp.qe) conq.push({ id: 'puxador', nome: 'Puxador de votos', desc: 'Teve votos para eleger sozinho mais de um quociente eleitoral.' });
+      var max = Math.max.apply(null, rj.rp.eleitos.map(function (e) { return e.votos; }));
+      if (jr.votos >= max) conq.push({ id: 'campeao', nome: 'Mais votado do estado', desc: 'Nenhum candidato teve mais votos que você.' });
+      if (jr.eleito && jr.via !== 'quociente') conq.push({ id: 'media', nome: 'Na conta das sobras', desc: 'Eleito(a) pela distribuição das sobras.' });
+    }
+    var pres = c.palanque ? candPorId(jogo, c.palanque) : null;
+    if (pres && jogo.vencedor === pres.id) conq.push({ id: 'aliado', nome: 'Aliado do Planalto', desc: 'Seu candidato a presidente (' + pres.urna + ') venceu.' });
   }
   if (c.stats.debates.length >= 2 && c.stats.debates.every(function (d) { return d.media > 1.8; })) conq.push({ id: 'debatedor', nome: 'Debatedor nato', desc: 'Foi bem em todos os debates de que participou.' });
-  if (c.stats.ataques === 0 && venceu) conq.push({ id: 'limpa', nome: 'Campanha limpa', desc: 'Venceu sem fazer nenhum ataque direto aos adversários.' });
+  if (c.stats.ataques === 0 && venceu && jogo.cargo !== 'depfed' && jogo.cargo !== 'depest') conq.push({ id: 'limpa', nome: 'Campanha limpa', desc: 'Venceu sem fazer nenhum ataque direto aos adversários.' });
   if (c.stats.apoiosGanhos >= 5) conq.push({ id: 'articulador', nome: 'Grande articulador', desc: 'Conquistou cinco ou mais apoios durante a campanha.' });
-  if (jogo.resultado2 && jogo.resultado2.ids.indexOf(c.id) >= 0 && r1.ordem[0] !== c.id && venceu) conq.push({ id: 'virada', nome: 'Virada no 2º turno', desc: 'Venceu depois de terminar o 1º turno em segundo lugar.' });
   jogo.conquistas = conq;
   salvarRecorde(jogo);
 }
@@ -462,11 +559,21 @@ function salvarRecorde(jogo) {
   try {
     var c = jogador(jogo);
     var lista = JSON.parse(localStorage.getItem('simuladorEleicoes.recordes') || '[]');
-    var pct1 = jogo.resultado1 ? jogo.resultado1.pct[c.id] : null;
-    var pct2 = jogo.resultado2 && jogo.resultado2.pct[c.id] !== undefined ? jogo.resultado2.pct[c.id] : null;
+    var rj = resultadoJogador(jogo);
+    var desc;
+    if (jogo.cargo === 'presidente') {
+      var p1 = jogo.resultado1 ? jogo.resultado1.pct[c.id] : null;
+      var p2 = jogo.resultado2 && jogo.resultado2.pct[c.id] !== undefined ? jogo.resultado2.pct[c.id] : null;
+      desc = p2 !== null ? '2º turno: ' + fmtPct(p2) : '1º turno: ' + fmtPct(p1 || 0);
+    } else if (rj.rp) desc = fmtVotos(rj.rp.jogador.votos) + ' votos';
+    else {
+      var rr = rj.r2 || rj.r1;
+      desc = (rj.r2 ? '2º turno: ' : '') + fmtPct(rr.pct[c.id] || 0);
+    }
     lista.push({
-      data: new Date().toISOString().slice(0, 10), nome: c.urna, partido: c.partido, venceu: jogo.vencedor === c.id,
-      pct1: pct1, pct2: pct2, dificuldade: jogo.config.dificuldade, ritmo: jogo.config.ritmo
+      data: new Date().toISOString().slice(0, 10), nome: c.urna, partido: c.partido, venceu: rj.venceu,
+      cargo: jogo.cargo, uf: c.uf && c.escopo === 'estadual' ? c.uf : null, desc: desc,
+      dificuldade: jogo.config.dificuldade, ritmo: jogo.config.ritmo
     });
     localStorage.setItem('simuladorEleicoes.recordes', JSON.stringify(lista.slice(-30)));
   } catch (e) { /* armazenamento indisponível */ }

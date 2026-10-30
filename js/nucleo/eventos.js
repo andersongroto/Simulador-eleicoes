@@ -7,8 +7,21 @@ function textoPorIdeologia(c, esquerda, centro, direita) {
 }
 
 function ehSituacao(c) { return c.situacao; }
+function ehDeputado(c) { return c.cargo === 'depfed' || c.cargo === 'depest'; }
+
+/* Intenção de voto percebida (pesquisas) na disputa do candidato. */
+function percebidoGeral(jogo, c) {
+  if (c.escopo === 'estadual') return ehDeputado(c) ? 0 : percebidoEst(jogo, c);
+  return (jogo.percepcao && jogo.percepcao[c.id]) || 0;
+}
+
+function crescerRecogLocal(c, uf, taxa) {
+  if (c.escopo === 'estadual') { crescerRecogTodos(c, taxa / 2); return; }
+  crescerRecog(c, uf, taxa);
+}
 
 function rivalPrincipal(jogo, c) {
+  if (c.escopo === 'estadual') return ehDeputado(c) ? null : rivalEst(jogo, c);
   var perc = jogo.percepcao || {};
   var outros = candidatosAtivos(jogo).filter(function (o) { return o.id !== c.id; });
   outros.sort(function (a, b) { return (perc[b.id] || 0) - (perc[a.id] || 0); });
@@ -26,7 +39,7 @@ var DESASTRES = [
 
 var EVENTOS = {
   fakeNews: {
-    peso: function (jogo, c) { return 1.2 + ((jogo.percepcao && jogo.percepcao[c.id]) > 15 ? 0.6 : 0); },
+    peso: function (jogo, c) { return 1.2 + (percebidoGeral(jogo, c) > 15 ? 0.6 : 0); },
     criar: function (jogo, c) {
       var boato = textoPorIdeologia(c,
         'que você pretende fechar igrejas e proibir cultos',
@@ -72,7 +85,7 @@ var EVENTOS = {
         efeito: function (jogo, c, d) {
           c.distanciados = (c.distanciados || []).concat([d.sigla]);
           c.coligacao = c.coligacao.filter(function (s) { return s !== d.sigla; });
-          jogo.partidos[d.sigla] = null;
+          if (c.escopo !== 'estadual') jogo.partidos[d.sigla] = null;
           c.imagem += 0.04; c.cred.corrupcao = Math.min(98, c.cred.corrupcao + 5);
           for (var uf in jogo.governadores) { var g = jogo.governadores[uf]; if (g.partido === d.sigla && g.apoio === c.id && !g.fixo) g.apoio = null; }
           return 'Você anuncia o rompimento com o ' + d.sigla + '. A decisão é elogiada, mas os palanques do partido nos estados se desfazem.';
@@ -89,7 +102,11 @@ var EVENTOS = {
 
   desastre: {
     peso: function () { return 0.6; },
-    criar: function (jogo) {
+    criar: function (jogo, c) {
+      if (c.escopo === 'estadual') {
+        var e = ESTADO_POR_UF[c.uf];
+        return { titulo: 'Temporal deixa desabrigados ' + prepUF(e.uf, 'em'), texto: 'Chuvas fortes provocam enchentes e deslizamentos em cidades do interior. A tragédia domina o noticiário local.', dados: { uf: c.uf } };
+      }
       var dz = escolher(DESASTRES);
       return { titulo: dz.titulo, texto: dz.texto + ' A tragédia domina o noticiário.', dados: { uf: dz.uf } };
     },
@@ -98,8 +115,8 @@ var EVENTOS = {
         disponivel: function (jogo, c) { return c.dinheiro >= 0.3; },
         efeito: function (jogo, c, d) {
           gastar(c, 0.3); c.energia = Math.max(0, c.energia - 10 * escalaRitmo(jogo));
-          c.presenca[d.uf] = Math.min(100, c.presenca[d.uf] + 15);
-          crescerRecog(c, d.uf, 0.08);
+          somarPresenca(c, d.uf, 15);
+          crescerRecogLocal(c, d.uf, 0.08);
           if (chance(0.25)) { c.desgaste += 3; return 'Sua visita é criticada como oportunista por adversários e parte da imprensa.'; }
           c.imagem += 0.05;
           return 'As imagens de você ajudando famílias atingidas comovem o país.';
@@ -139,7 +156,7 @@ var EVENTOS = {
   },
 
   dolar: {
-    peso: function (jogo, c) { return c.x < -20 && (jogo.percepcao && jogo.percepcao[c.id]) > 18 ? 1.1 : 0; },
+    peso: function (jogo, c) { return c.escopo !== 'estadual' && c.x < -20 && percebidoGeral(jogo, c) > 18 ? 1.1 : 0; },
     criar: function () {
       return { titulo: 'Dólar dispara e mercado reage à sua fala', texto: 'Após você criticar o Banco Central, o dólar sobe 3% e a bolsa despenca. Analistas falam em "risco eleitoral".', dados: {} };
     },
@@ -187,7 +204,7 @@ var EVENTOS = {
 
   aliadoAmeaca: {
     peso: function (jogo, c) {
-      var share = (jogo.percepcao && jogo.percepcao[c.id]) || 0;
+      var share = percebidoGeral(jogo, c);
       var fisios = c.coligacao.filter(function (s) { return s !== c.partido && PARTIDO_POR_SIGLA[s].fisio > 0.6; });
       return share < 9 && fisios.length && jogo.dia > 14 ? 1.3 : 0;
     },
@@ -211,7 +228,7 @@ var EVENTOS = {
   },
 
   celebridade: {
-    peso: function (jogo, c) { return 0.6 + ((jogo.percepcao && jogo.percepcao[c.id]) > 10 ? 0.4 : 0); },
+    peso: function (jogo, c) { return 0.6 + (percebidoGeral(jogo, c) > 10 ? 0.4 : 0); },
     criar: function (jogo, c) {
       var quem = c.x < 0 ? 'A cantora Ana Clara, maior fenômeno do pop nacional,' : 'O sertanejo Diego Prates, recordista de streams,';
       return { titulo: 'Celebridade declara voto em você', texto: quem + ' publica vídeo declarando voto em ' + c.urna + '.', dados: {} };
@@ -254,7 +271,7 @@ var EVENTOS = {
           var rolagem = (c.attr.oratoria + c.attr.carisma) / 2 + randn() * 18;
           if (rolagem > 52) {
             c.segTemp.jovem += 0.06; c.imagem += 0.05;
-            UFS.forEach(function (u) { crescerRecog(c, u, 0.03); });
+            crescerRecogTodos(c, 0.03);
             return 'A entrevista bate recorde de audiência e trechos seus viralizam positivamente.';
           }
           c.desgaste += 5;
@@ -266,7 +283,7 @@ var EVENTOS = {
   },
 
   dossie: {
-    peso: function (jogo, c) { return jogo.dia > 10 ? 0.6 : 0; },
+    peso: function (jogo, c) { return jogo.dia > 10 && !ehDeputado(c) ? 0.6 : 0; },
     criar: function (jogo, c) {
       var r = rivalPrincipal(jogo, c);
       if (!r) return null;
@@ -286,7 +303,7 @@ var EVENTOS = {
   },
 
   queimadas: {
-    peso: function () { return 0.5; },
+    peso: function (jogo, c) { return c.escopo === 'estadual' ? 0 : 0.5; },
     criar: function (jogo) {
       jogo.saliencia.ambiente = 1.8; jogo.salienciaAte = jogo.salienciaAte || {}; jogo.salienciaAte.ambiente = jogo.dia + 14;
       return { titulo: 'Queimadas na Amazônia batem recorde', texto: 'A fumaça chega às capitais do Sul e do Sudeste. O meio ambiente vira tema central da campanha.', dados: {} };
@@ -330,6 +347,49 @@ var EVENTOS = {
       { rotulo: 'Culpar o governo', desc: 'Só faz sentido se você é oposição.',
         disponivel: function (jogo, c) { return !c.situacao; },
         efeito: function (jogo, c) { jogo.aprovacao = clamp(jogo.aprovacao - 1, 15, 75); c.imagem += 0.015; return 'Você responsabiliza o governo pela crise. A oposição ganha o debate do dia.'; } }
+    ]
+  },
+
+  igrejaOferta: {
+    peso: function (jogo, c) { return ehDeputado(c) && c.x > -30 ? 1.2 : 0; },
+    criar: function (jogo, c) {
+      return { titulo: 'Igreja oferece apoio à sua candidatura', texto: 'O pastor de uma das maiores igrejas do estado oferece pedir votos para você nos cultos, desde que você assuma a pauta da família no mandato.', dados: {} };
+    },
+    opcoes: [
+      { rotulo: 'Aceitar o compromisso', desc: 'Ganha os votos da igreja, perde parte dos jovens.',
+        efeito: function (jogo, c) { c.segAff.evang += 0.12; c.segAff.jovem -= 0.03; c.cred.costumes = Math.min(98, c.cred.costumes + 8); return 'O pastor anuncia seu nome no culto de domingo. Milhares de fiéis recebem seu santinho.'; } },
+      { rotulo: 'Agradecer e recusar', desc: 'Mantém a independência.',
+        efeito: function (jogo, c) { c.imagem += 0.01; return 'Você agradece o convite e mantém sua agenda independente.'; } }
+    ]
+  },
+
+  prefeitoEmenda: {
+    peso: function (jogo, c) { return ehDeputado(c) ? 1.3 : 0; },
+    criar: function (jogo, c) {
+      var p = gerarPessoa('exprefeito');
+      return { titulo: 'Prefeito do interior oferece apoio', texto: 'O prefeito ' + p.nome + ', com forte influência na região, promete fazer campanha para você se, eleito, você destinar emendas para o hospital da cidade.', dados: { nome: p.nome } };
+    },
+    opcoes: [
+      { rotulo: 'Fechar o acordo', desc: 'Votos garantidos no interior; a oposição local pode explorar.',
+        efeito: function (jogo, c, d) { c.eps.interior += 0.12; if (chance(0.2)) { c.desgaste += 3; return 'O acordo vaza e adversários falam em compra de apoio, mas os votos do município ficam com você.'; } return d.nome + ' sobe no seu palanque e leva vereadores e cabos eleitorais junto.'; } },
+      { rotulo: 'Recusar', desc: 'Sem compromissos com emendas.',
+        efeito: function () { return 'O prefeito decide apoiar outro candidato.'; } }
+    ]
+  },
+
+  colegaLista: {
+    peso: function (jogo, c) { return ehDeputado(c) && jogo.est.ufs[c.uf].lista && jogo.dia > 7 ? 1.1 : 0; },
+    criar: function (jogo, c) {
+      var outro = escolher(jogo.est.ufs[c.uf].lista.slice(0, 6));
+      return { titulo: 'Colega de partido invade seu reduto', texto: outro.urna + ', candidato(a) do seu próprio partido, passa a fazer campanha pesada na sua principal base eleitoral. Na lista aberta, quem disputa voto com você é o vizinho de chapa.', dados: { nome: outro.urna } };
+    },
+    opcoes: [
+      { rotulo: 'Reforçar a presença no reduto', desc: 'Gasta energia e dinheiro, mas segura os votos.',
+        efeito: function (jogo, c) { var v = escalaCustoCargo(c.cargo, c.uf) * 0.4; if (c.dinheiro >= v) gastar(c, v); c.energia = Math.max(0, c.energia - 8 * escalaRitmo(jogo)); ZONAS.forEach(function (z) { c.presenca[z] = Math.min(100, c.presenca[z] + 6); }); return 'Você reforça a agenda e mantém os aliados locais.'; } },
+      { rotulo: 'Propor divisão de territórios', desc: 'Acordo de cavalheiros entre colegas.',
+        efeito: function (jogo, c) { c.imagem += 0.01; return 'Vocês combinam não disputar os mesmos bairros. A trégua dura até a próxima semana.'; } },
+      { rotulo: 'Ignorar', desc: 'Sem custo agora.',
+        efeito: function (jogo, c) { c.eps.metro -= 0.05; c.eps.interior -= 0.05; return 'Parte dos seus apoiadores passa a pedir voto para o colega.'; } }
     ]
   },
 

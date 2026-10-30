@@ -28,6 +28,7 @@
   --c5: #6250d6; --c6: #e87ba4; --c7: #eda100; --c8: #008300;
   --seq-0: #e3edf9; --seq-1: #b7d3f6; --seq-2: #86b6ef; --seq-3: #5598e7; --seq-4: #2a78d6; --seq-5: #1c5cab; --seq-6: #0d366b;
   --mapa-vazio: #d9ddd4;
+  --div-e2: #d03b3b; --div-e1: #ec8f8b; --div-0: #a7a59e; --div-d1: #86b6ef; --div-d2: #2a6fc4;
   --font-display: 'Archivo', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
   --font-ui: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --font-news: 'Newsreader', Georgia, 'Times New Roman', serif;
@@ -47,6 +48,7 @@
     --c5: #9085e9; --c6: #d55181; --c7: #c98500; --c8: #008300;
     --seq-0: #1b2633; --seq-1: #184f95; --seq-2: #1c5cab; --seq-3: #2a78d6; --seq-4: #3987e5; --seq-5: #6da7ec; --seq-6: #b7d3f6;
     --mapa-vazio: #2a302b;
+    --div-e2: #e66767; --div-e1: #b85a58; --div-0: #6e6d68; --div-d1: #3e6fa8; --div-d2: #5598e7;
     color-scheme: dark;
   }
 }
@@ -61,6 +63,7 @@
   --c5: #9085e9; --c6: #d55181; --c7: #c98500; --c8: #008300;
   --seq-0: #1b2633; --seq-1: #184f95; --seq-2: #1c5cab; --seq-3: #2a78d6; --seq-4: #3987e5; --seq-5: #6da7ec; --seq-6: #b7d3f6;
   --mapa-vazio: #2a302b;
+  --div-e2: #e66767; --div-e1: #b85a58; --div-0: #6e6d68; --div-d1: #3e6fa8; --div-d2: #5598e7;
   color-scheme: dark;
 }
 
@@ -255,6 +258,14 @@ input[type="range"] { width: 100%; accent-color: var(--confirma); }
 .acao-btn span { font-size: 0.76rem; color: var(--muted); }
 .form-acao { border: 1px dashed var(--muted); border-radius: 8px; padding: 14px; display: grid; gap: 12px; background: var(--surface-2); }
 .custo-linha { display: flex; gap: 14px; font-size: 0.85rem; color: var(--ink-2); flex-wrap: wrap; }
+
+/* ---------- Campanha estadual ---------- */
+.silhueta { width: 120px; height: 110px; flex: 0 0 auto; }
+.silhueta path { stroke: var(--surface); stroke-width: 1.5; }
+.zona-card h3 { font-size: 1.15rem; }
+.abas-apur { display: flex; gap: 6px; flex-wrap: wrap; }
+.hemiciclo { width: 100%; height: auto; display: block; max-width: 560px; margin: 0 auto; }
+.hemiciclo circle { stroke: var(--surface); stroke-width: 0.6; }
 
 /* ---------- Agenda (doca inferior) ---------- */
 .doca {

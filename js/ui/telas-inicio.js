@@ -4,13 +4,14 @@ TELAS.inicio = function () {
   var salvo = temJogoSalvo();
   var rec = lerRecordes().slice(-6).reverse();
   var tabRec = rec.length ? '<div class="recordes"><div class="rotulo">Suas últimas campanhas</div><table>' + rec.map(function (r) {
-    return '<tr><td>' + esc(r.data.split('-').reverse().join('/')) + '</td><td>' + esc(r.nome) + ' (' + esc(r.partido) + ')</td><td class="tnum">' +
-      (r.pct2 !== null && r.pct2 !== undefined ? '2º turno: ' + fmtPct(r.pct2) : '1º turno: ' + fmtPct(r.pct1 || 0)) + '</td><td>' + (r.venceu ? 'Eleito(a)' : 'Derrotado(a)') + '</td></tr>';
+    var desc = r.desc || (r.pct2 !== null && r.pct2 !== undefined ? '2º turno: ' + fmtPct(r.pct2) : '1º turno: ' + fmtPct(r.pct1 || 0));
+    var cargo = r.cargo ? CARGOS[r.cargo].curto + (r.uf ? ' (' + r.uf + ')' : '') : 'Presidente';
+    return '<tr><td>' + esc(r.data.split('-').reverse().join('/')) + '</td><td>' + esc(r.nome) + ' (' + esc(r.partido) + ')</td><td>' + esc(cargo) + '</td><td class="tnum">' + esc(desc) + '</td><td>' + (r.venceu ? 'Eleito(a)' : 'Derrotado(a)') + '</td></tr>';
   }).join('') + '</table></div>' : '';
   return '<main class="capa gutter"><div class="capa-grade">' +
-    '<div><div class="rotulo" style="color:var(--urna-muted)">Simulador de eleição presidencial</div>' +
+    '<div><div class="rotulo" style="color:var(--urna-muted)">Simulador eleitoral · versão 2.0</div>' +
     '<h1>Palanque</h1>' +
-    '<p class="sub">Monte sua chapa, costure alianças, percorra os 27 estados, enfrente os debates na TV e acompanhe a apuração voto a voto até a posse no Palácio do Planalto.</p>' +
+    '<p class="sub">Dispute a Presidência, um governo estadual, uma vaga no Senado, na Câmara ou na Assembleia. Costure alianças, percorra o estado ou o país, enfrente os debates na TV e acompanhe a apuração voto a voto.</p>' +
     '<div class="linha-botoes">' +
     '<button class="btn btn-confirma btn-grande" data-a="novaCampanha">Nova campanha</button>' +
     (salvo ? '<button class="btn btn-grande" data-a="continuar">Continuar campanha salva</button>' : '') +
@@ -32,7 +33,10 @@ ACOES_UI.continuar = function () {
 };
 ACOES_UI.comoJogar = function () {
   abrirModal('<div class="modal-topo"><h2>Como jogar</h2></div><div class="modal-corpo pilha">' +
-    '<p><b>Objetivo:</b> ser eleito(a) presidente. Se ninguém tiver mais da metade dos votos válidos no 1º turno, os dois mais votados disputam o 2º turno.</p>' +
+    '<p><b>Objetivo:</b> vencer a eleição para o cargo escolhido: presidente, governador, senador, deputado federal ou deputado estadual. Todas as disputas acontecem ao mesmo tempo e são apuradas juntas.</p>' +
+    '<p><b>Majoritárias:</b> presidente e governador precisam de mais da metade dos votos válidos; senão, há 2º turno. Para o Senado vence quem tiver mais votos (em 2026 são duas vagas por estado).</p>' +
+    '<p><b>Proporcionais:</b> deputados são eleitos pelo quociente eleitoral. O partido conquista cadeiras com a soma dos votos e os mais votados da lista ficam com elas. Seu concorrente direto é o colega de partido.</p>' +
+    '<p><b>Voto casado:</b> eleitores de um presidenciável tendem a votar nos candidatos do palanque dele nos estados. Quem disputa a Presidência pode montar palanques, fazer comícios com aliados e repassar recursos.</p>' +
     '<p><b>Pré-campanha:</b> escolha o vice, negocie a coligação (mais partidos = mais tempo de TV, dinheiro e palanques nos estados), contrate o marqueteiro e defina as bandeiras do programa.</p>' +
     '<p><b>Campanha:</b> a cada semana (ou dia, no ritmo diário) você monta a agenda: comícios, carreatas, visitas a públicos específicos, entrevistas, redes sociais, arrecadação, ataques, propostas e negociação de apoios com governadores e setores organizados.</p>' +
     '<p><b>Recursos:</b> dinheiro (fundo eleitoral + doações, com teto de gastos), energia do candidato (cansaço gera gafes) e tempo de TV (definido pela bancada da coligação).</p>' +
@@ -51,8 +55,22 @@ TELAS.config = function () {
   function op(grupo, val, titulo, desc) {
     return '<button class="opcao' + (c[grupo] === val ? ' sel' : '') + '" data-a="cfg" data-g="' + grupo + '" data-v="' + val + '"><h3>' + titulo + '</h3><p class="sec pequeno">' + desc + '</p></button>';
   }
+  var cargos = [
+    ['presidente', 'Presidente da República', 'Disputa nacional nos 27 estados, com debates, sabatina e palanques estaduais para coordenar.'],
+    ['governador', 'Governador(a)', 'Disputa majoritária no seu estado, em dois turnos. Coligação, vice, debates na TV local.'],
+    ['senador', 'Senador(a)', 'Turno único. Em ' + (c.ano === 2030 ? '2030 há uma vaga' : '2026 há duas vagas') + ' por estado e o eleitor vota em ' + (c.ano === 2030 ? 'um nome.' : 'dois nomes.')],
+    ['depfed', 'Deputado(a) federal', 'Eleição proporcional com lista aberta: o partido precisa fazer cadeiras e você precisa ser dos mais votados da lista.'],
+    ['depest', 'Deputado(a) estadual', 'Como a de deputado federal, mas para a Assembleia Legislativa: mais vagas, campanha mais barata.']
+  ];
   return cabecalhoTela('Nova campanha', 'Configuração da partida', 0) +
     '<main class="container gutter pilha-g">' +
+    '<section class="pilha"><h2>Cargo em disputa</h2><div class="opcoes-grandes">' +
+    cargos.map(function (k) { return op('cargo', k[0], k[1], k[2]); }).join('') + '</div>' +
+    (c.cargo !== 'presidente' ? '<div class="campo" style="max-width:360px"><label for="cfg-uf">Estado da candidatura</label><select id="cfg-uf" data-mudar="cfgUF">' + UFS_MAPA.slice().sort(function (a, b) { return ESTADO_POR_UF[a].nome.localeCompare(ESTADO_POR_UF[b].nome); }).map(function (u) {
+      var e = ESTADO_POR_UF[u];
+      return '<option value="' + u + '"' + (u === c.uf ? ' selected' : '') + '>' + e.nome + ' · ' + fmtNum(e.eleitores, 1) + ' mi de eleitores · ' + VAGAS_FED[u] + ' dep. federais</option>';
+    }).join('') + '</select></div>' : '') +
+    '<p class="mudo pequeno">Todas as disputas (presidente, governadores, Senado, Câmara e assembleias) acontecem em paralelo em qualquer modo e são apuradas juntas na noite da eleição.</p></section>' +
     '<section class="pilha"><h2>Ritmo da campanha</h2><div class="opcoes-grandes">' +
     op('ritmo', 'semanal', 'Semanal', 'Cada rodada é uma semana, com 5 compromissos na agenda. Cerca de 7 rodadas no 1º turno e 3 no 2º. Partidas de 30 a 60 minutos.') +
     op('ritmo', 'diario', 'Diário', 'Cada rodada é um dia, com 2 compromissos (manhã e tarde/noite). Cerca de 49 rodadas no 1º turno e 20 no 2º. Controle fino, partidas longas.') +
@@ -66,12 +84,12 @@ TELAS.config = function () {
     op('ano', 2026, '2026', '1º turno em 4 de outubro e 2º turno em 25 de outubro.') +
     op('ano', 2030, '2030', '1º turno em 6 de outubro e 2º turno em 27 de outubro.') +
     '</div></section>' +
-    '<div class="linha-botoes"><button class="btn" data-a="voltarInicio">Voltar</button><button class="btn btn-confirma btn-grande" data-a="irEscolha">Escolher candidato</button></div>' +
+    '<div class="linha-botoes"><button class="btn" data-a="voltarInicio">Voltar</button><button class="btn btn-confirma btn-grande" data-a="' + (c.cargo === 'presidente' ? 'irEscolha' : 'irCriar') + '">' + (c.cargo === 'presidente' ? 'Escolher candidato' : 'Criar candidato') + '</button></div>' +
     '</main>';
 };
 
-function cabecalhoTela(rotulo, titulo, passo) {
-  var passos = ['Configuração', 'Candidato', 'Vice', 'Coligação', 'Marqueteiro', 'Programa'];
+function cabecalhoTela(rotulo, titulo, passo, passosCustom) {
+  var passos = passosCustom || ['Configuração', 'Candidato'].concat((ETAPAS_POR_CARGO[UI.config.cargo || 'presidente'] || []).map(function (e) { return NOMES_ETAPA[e]; }));
   return '<header class="cabecalho-tela gutter"><div style="max-width:1180px;margin:0 auto"><div class="rotulo">' + esc(rotulo) + '</div><h1>' + esc(titulo) + '</h1>' +
     '<div class="passos">' + passos.map(function (p, i) {
       return '<span class="passo' + (i === passo ? ' ativo' : (i < passo ? ' feito' : '')) + '">' + (i + 1) + '. ' + p + '</span>';
@@ -82,6 +100,7 @@ ACOES_UI.cfg = function (d) {
   UI.config[d.g] = d.g === 'ano' ? +d.v : d.v;
   atualizar();
 };
+ACOES_UI.cfgUF = function (d, el) { UI.config.uf = el.value; if (UI.criar) UI.criar.uf = el.value; };
 ACOES_UI.voltarInicio = function () { irPara('inicio'); };
 ACOES_UI.irEscolha = function () { irPara('escolha'); };
 
@@ -128,6 +147,9 @@ function pontosUsados(attr) { return attr.carisma + attr.oratoria + attr.gestao 
 
 TELAS.criar = function () {
   var f = UI.criar;
+  var cargo = UI.config.cargo || 'presidente';
+  if (cargo !== 'presidente') f.uf = UI.config.uf;
+  var idadeMin = CARGOS[cargo].idadeMin;
   var p = PARTIDO_POR_SIGLA[f.partido];
   var dono = CANDIDATOS_PRONTOS.filter(function (c) { return c.partido === f.partido; })[0];
   var restantes = PONTOS_ATRIBUTOS - pontosUsados(f.attr);
@@ -135,7 +157,7 @@ TELAS.criar = function () {
   var traj = TRAJETORIAS[f.trajetoria];
   var preview = {
     id: 'novo', urna: f.urna || f.nome.split(' ')[0] || 'Seu nome', nome: f.nome || 'Seu nome completo', idade: f.idade, partido: f.partido,
-    uf: f.uf, x: f.x, cor: dono ? dono.cor : 8, bio: traj.nome + ' de ' + ESTADO_POR_UF[f.uf].nome + '.', recog: clamp(8 + traj.recogNac, 3, 70), attr: f.attr
+    uf: f.uf, x: f.x, cor: dono ? dono.cor : 8, bio: traj.nome + ' ' + prepUF(f.uf, 'de') + '.', recog: clamp(8 + traj.recogNac, 3, 70), attr: f.attr
   };
   var minX = clamp(p.ideo - 35, -100, 100), maxX = clamp(p.ideo + 35, -100, 100);
   return cabecalhoTela('Nova campanha', 'Criar candidato', 1) +
@@ -145,8 +167,9 @@ TELAS.criar = function () {
     '<div class="campo"><label for="c-nome">Nome completo</label><input type="text" id="c-nome" maxlength="40" value="' + esc(f.nome) + '" data-digitar="criarCampo" data-k="nome" placeholder="Ex.: Joana Martins da Silva"></div>' +
     '<div class="campo"><label for="c-urna">Nome na urna</label><input type="text" id="c-urna" maxlength="18" value="' + esc(f.urna) + '" data-digitar="criarCampo" data-k="urna" placeholder="Ex.: Joana"></div>' +
     '<div class="campo"><label for="c-genero">Gênero</label><select id="c-genero" data-mudar="criarCampo" data-k="genero"><option value="F"' + (f.genero === 'F' ? ' selected' : '') + '>Feminino</option><option value="M"' + (f.genero === 'M' ? ' selected' : '') + '>Masculino</option></select></div>' +
-    '<div class="campo"><label for="c-idade">Idade (mínimo 35 anos)</label><input type="number" id="c-idade" min="35" max="90" value="' + f.idade + '" data-mudar="criarCampo" data-k="idade"></div>' +
-    '<div class="campo"><label for="c-uf">Estado de origem</label><select id="c-uf" data-mudar="criarCampo" data-k="uf">' + UFS_MAPA.map(function (u) { return '<option value="' + u + '"' + (u === f.uf ? ' selected' : '') + '>' + ESTADO_POR_UF[u].nome + '</option>'; }).join('') + '</select></div>' +
+    '<div class="campo"><label for="c-idade">Idade (mínimo ' + idadeMin + ' anos)</label><input type="number" id="c-idade" min="' + idadeMin + '" max="90" value="' + f.idade + '" data-mudar="criarCampo" data-k="idade"></div>' +
+    (cargo === 'presidente' ? '<div class="campo"><label for="c-uf">Estado de origem</label><select id="c-uf" data-mudar="criarCampo" data-k="uf">' + UFS_MAPA.map(function (u) { return '<option value="' + u + '"' + (u === f.uf ? ' selected' : '') + '>' + ESTADO_POR_UF[u].nome + '</option>'; }).join('') + '</select></div>'
+      : '<div class="campo"><span class="rotulo">Candidatura</span><b>' + nomeCargo(cargo, f.genero) + ' · ' + esc(ESTADO_POR_UF[f.uf].nome) + '</b></div>') +
     '<div class="campo"><label for="c-slogan">Slogan (opcional)</label><input type="text" id="c-slogan" maxlength="48" value="' + esc(f.slogan) + '" data-digitar="criarCampo" data-k="slogan" placeholder="Ex.: O Brasil pode mais"></div>' +
     '</div></section>' +
     '<section class="cartao cartao-corpo pilha"><h3>Partido</h3>' +
@@ -155,8 +178,10 @@ TELAS.criar = function () {
       return '<option value="' + pp.sigla + '"' + (pp.sigla === f.partido ? ' selected' : '') + '>' + pp.sigla + ' ' + pp.numero + ' · ' + esc(pp.nome) + (dd ? ' (vaga de ' + dd.urna + ')' : '') + '</option>';
     }).join('') + '</select></div>' +
     '<div class="lado"><span class="tag">' + rotuloIdeologia(p.ideo) + '</span><span class="tag">' + p.bancada + ' deputados</span><span class="tag">Fundo: ' + fmtDinheiro(p.fundo) + '</span><span class="tag">Número ' + p.numero + '</span></div>' +
-    '<p class="sec pequeno">' + (dono ? 'Você substitui ' + esc(dono.nome) + ' como candidato(a) do partido e herda a coligação dele(a).' : 'O candidato mais fraco da disputa (' + esc(CANDIDATOS_PRONTOS[CANDIDATOS_PRONTOS.length - 1].urna) + ') desiste antes das convenções e abre espaço para você.') +
-    ' Partidos grandes dão mais tempo de TV e dinheiro; partidos pequenos podem ficar fora de debates.</p></section>' +
+    '<p class="sec pequeno">' + (cargo === 'presidente' ? (dono ? 'Você substitui ' + esc(dono.nome) + ' como candidato(a) do partido e herda a coligação dele(a).' : 'O candidato mais fraco da disputa (' + esc(CANDIDATOS_PRONTOS[CANDIDATOS_PRONTOS.length - 1].urna) + ') desiste antes das convenções e abre espaço para você.') +
+      ' Partidos grandes dão mais tempo de TV e dinheiro; partidos pequenos podem ficar fora de debates.'
+      : cargo === 'governador' || cargo === 'senador' ? 'Se o partido já tinha nome para a disputa no estado, você fica com a vaga e herda a coligação. O partido apoia ' + (dono ? esc(dono.urna) : 'quem quiser') + ' para presidente; o voto casado com o presidenciável conta muito.'
+      : 'Partido forte no estado faz mais cadeiras, mas a lista dele também tem mais concorrentes. Partido pequeno pode não atingir o quociente eleitoral.') + '</p></section>' +
     '<section class="cartao cartao-corpo pilha"><h3>Trajetória</h3><div class="opcoes-grandes" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr))">' +
     Object.keys(TRAJETORIAS).map(function (k) {
       var t = TRAJETORIAS[k];
@@ -173,14 +198,15 @@ TELAS.criar = function () {
     '</div>' +
     '<aside class="pilha" style="align-content:start;position:sticky;top:16px">' + santinhoHtml(preview, true, 'nada').replace('<button', '<div').replace(/<\/button>$/, '</div>') +
     '<button class="btn btn-confirma btn-grande" data-a="confirmarCriacao"' + (restantes < 0 ? ' disabled' : '') + '>Registrar pré-candidatura</button>' +
-    '<button class="btn" data-a="irEscolha">Voltar</button></aside>' +
+    '<button class="btn" data-a="sortearCandidato">Gerar perfil aleatório</button>' +
+    '<button class="btn" data-a="' + (cargo === 'presidente' ? 'irEscolha' : 'novaCampanha') + '">Voltar</button></aside>' +
     '</div></main>';
 };
 
 ACOES_UI.nada = function () {};
 ACOES_UI.criarCampo = function (d, el) {
   var v = el.value;
-  if (d.k === 'idade') v = clamp(parseInt(v, 10) || 35, 35, 90);
+  if (d.k === 'idade') { var min = CARGOS[UI.config.cargo || 'presidente'].idadeMin; v = clamp(parseInt(v, 10) || min, min, 90); }
   UI.criar[d.k] = v;
   if (d.k === 'nome' || d.k === 'urna') {
     var alvo = document.querySelector('aside .santinho-nome');
@@ -214,16 +240,34 @@ ACOES_UI.criarAttr = function (d, el) {
 ACOES_UI.confirmarCriacao = function () {
   var f = UI.criar;
   if (!f.nome.trim()) { toast('Informe o nome completo do candidato.'); return; }
-  if (f.idade < 35) { toast('A Constituição exige idade mínima de 35 anos para presidente.'); return; }
-  UI.escolha = { tipo: 'criar', dados: {
+  var cargo = UI.config.cargo || 'presidente', min = CARGOS[cargo].idadeMin;
+  if (f.idade < min) { toast('A Constituição exige idade mínima de ' + min + ' anos para ' + (cargo === 'presidente' ? 'presidente' : nomeCargo(cargo, f.genero).toLowerCase()) + '.'); return; }
+  UI.escolha = { tipo: cargo === 'presidente' ? 'criar' : 'estadual', dados: {
     nome: f.nome.trim(), urna: (f.urna || f.nome.split(' ')[0]).trim(), genero: f.genero, idade: +f.idade, uf: f.uf, partido: f.partido,
     trajetoria: f.trajetoria, x: +f.x, attr: copiar(f.attr), slogan: f.slogan.trim()
   } };
   comecarJogo();
 };
 
+ACOES_UI.sortearCandidato = function () {
+  var genero = chance(0.5) ? 'F' : 'M';
+  var n = sortearNome(genero);
+  var p = escolher(PARTIDOS.filter(function (x) { return x.bancada >= 5; }));
+  var idade = randInt(CARGOS[UI.config.cargo || 'presidente'].idadeMin < 30 ? 26 : 38, 66);
+  // trajetórias que exigem carreira longa ficam de fora para candidatos jovens
+  var trajs = Object.keys(TRAJETORIAS).filter(function (t) { return idade >= 35 || ['governador', 'senador', 'juiz', 'militar'].indexOf(t) < 0; });
+  var attr = { carisma: 55, oratoria: 55, gestao: 55, articulacao: 55, integridade: 55 };
+  for (var i = 0; i < 40; i++) {
+    var a = escolher(Object.keys(attr)), b = escolher(Object.keys(attr));
+    if (a !== b && attr[a] < 85 && attr[b] > 25) { attr[a] += 5; attr[b] -= 5; }
+  }
+  UI.criar = { nome: n.nome, urna: n.primeiro + ' ' + n.ultimo, genero: genero, idade: idade, uf: UI.config.cargo === 'presidente' ? escolher(UFS_MAPA) : UI.config.uf,
+    partido: p.sigla, trajetoria: escolher(trajs), x: clamp(Math.round(p.ideo + randn() * 12), p.ideo - 35, p.ideo + 35), slogan: '', attr: attr };
+  atualizar();
+};
+
 function comecarJogo() {
-  JOGO = novoJogo({ ritmo: UI.config.ritmo, dificuldade: UI.config.dificuldade, ano: UI.config.ano }, UI.escolha);
+  JOGO = novoJogo({ ritmo: UI.config.ritmo, dificuldade: UI.config.dificuldade, ano: UI.config.ano, cargo: UI.config.cargo || 'presidente', uf: UI.config.uf }, UI.escolha);
   atualizarCache(JOGO);
   UI.pre = { vice: null, msgs: [], negociacoes: 0, marq: null, bandeiras: [] };
   UI.aba = 'agenda';
@@ -241,6 +285,8 @@ function retomarTela() {
   }
   else if (f === 'apuracao1' || f === 'apuracao2') irPara('vespera');
   else if (f === 'entreturnos') irPara('entreturnos');
+  else if (f === 'entreturnosGov') irPara('entreturnosGov');
+  else if (f === 'acompanhar') irPara('acompanhar');
   else if (f === 'eliminado') irPara('eliminado');
   else if (f === 'fim') irPara('fim');
   else irPara('inicio');

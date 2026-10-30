@@ -6,7 +6,15 @@ function notaDe(rolagem) {
   return NOTAS_DEBATE[NOTAS_DEBATE.length - 1];
 }
 
-function bonusMarqueteiro(c) { return c.marqueteiro && MARQ_POR_ID[c.marqueteiro] ? MARQ_POR_ID[c.marqueteiro].debate : 0; }
+function bonusMarqueteiro(c) {
+  var m = MARQ_POR_ID[c.marqueteiro] || (typeof MARQ_EST_POR_ID !== 'undefined' && MARQ_EST_POR_ID[c.marqueteiro]);
+  return m ? m.debate : 0;
+}
+
+/* Escopo do debate: presidencial (null) ou estadual ({ cargo, uf }). */
+function candsDoEscopo(jogo, esc) { return esc ? candsDisputa(jogo, esc.uf, esc.cargo) : candidatosAtivos(jogo); }
+function percDoEscopo(jogo, esc) { return esc ? (disputa(jogo, esc.uf, esc.cargo).percepcao || {}) : (jogo.percepcao || {}); }
+function alvoNoDebate(jogo, s, c) { return s && s.escopo ? rivalEst(jogo, c) : alvoDeAtaque(jogo, c); }
 
 function energiaDebate(c) { return c.energia < 25 ? -8 : (c.energia < 50 ? -3 : 0); }
 
@@ -24,7 +32,11 @@ function debateNoDia(jogo, dia) {
   return null;
 }
 
-function participantesDebate(jogo) {
+function participantesDebate(jogo, esc) {
+  if (esc) return candsDoEscopo(jogo, esc).filter(function (c) {
+    var perc = percDoEscopo(jogo, esc)[c.id] || 0;
+    return c.jogador || perc >= 2 || PARTIDO_POR_SIGLA[c.partido].bancada >= 5;
+  }).map(function (c) { return c.id; });
   return candidatosAtivos(jogo).filter(function (c) {
     if (jogo.fase === 'campanha2') return true;
     var perc = (jogo.percepcao && jogo.percepcao[c.id]) || 0;
@@ -48,11 +60,11 @@ function preencher(txt, c, extra) {
 }
 
 function iniciarDebate(jogo, def) {
-  var parts = participantesDebate(jogo);
+  var parts = participantesDebate(jogo, def.escopo);
   var jg = jogo.jogadorId;
   var s = {
-    dia: def.dia, emissora: def.emissora, audiencia: def.audiencia, participantes: parts,
-    segundoTurno: jogo.fase === 'campanha2',
+    dia: def.dia, emissora: def.emissora, audiencia: def.audiencia, participantes: parts, escopo: def.escopo || null,
+    segundoTurno: def.escopo ? parts.length <= 2 : jogo.fase === 'campanha2',
     jogadorParticipa: parts.indexOf(jg) >= 0 && jogador(jogo).ativo,
     pontos: {}, n: {}, log: [], passo: 0, temasUsados: [], frases: []
   };
@@ -95,7 +107,7 @@ function prepararPasso(jogo, s) {
       // o adversário que mais tem interesse em atacar o jogador
       var adv = s.participantes.filter(function (id) { return id !== jg.id; });
       p.de = escolherPeso(adv, function (id) {
-        var c = candPorId(jogo, id), alvo = alvoDeAtaque(jogo, c);
+        var c = candPorId(jogo, id), alvo = alvoNoDebate(jogo, s, c);
         return alvo && alvo.id === jg.id ? 4 : 1;
       });
     }
@@ -153,7 +165,7 @@ function duelosIA(jogo, s) {
   var ia = s.participantes.filter(function (id) { return id !== jg; });
   if (ia.length < 2) return;
   var a = escolher(ia);
-  var alvo = alvoDeAtaque(jogo, candPorId(jogo, a));
+  var alvo = alvoNoDebate(jogo, s, candPorId(jogo, a));
   var b = alvo && alvo.id !== jg && ia.indexOf(alvo.id) >= 0 ? alvo.id : escolher(ia.filter(function (x) { return x !== a; }));
   var ca = candPorId(jogo, a), cb = candPorId(jogo, b);
   var rolA = 0.7 * ca.attr.oratoria + rolagemBase(ca) + randn() * 18;
@@ -265,7 +277,8 @@ function responderDebate(jogo, s, escolha) {
     registrar(s, alvo.id, 'Tréplica: ' + tr.frase, tr.nota);
   } else if (p.tipo === 'consideracoes') {
     var cons = CONSIDERACOES[escolha.id];
-    var lider = posicaoNaCorrida(jogo, c).idx === 0;
+    var percL = percDoEscopo(jogo, s.escopo);
+    var lider = s.participantes.every(function (id) { return (percL[id] || 0) <= (percL[c.id] || 0); });
     var encaixe = 0;
     if (escolha.id === 'esperanca') encaixe = (c.situacao || lider) ? 8 : 2;
     if (escolha.id === 'indignacao') encaixe = c.situacao ? -10 : 7;
@@ -306,7 +319,7 @@ function simularDebateSemJogador(jogo, s) {
 /* Fecha o debate: pesquisa "quem venceu", efeitos na imagem e no conhecimento. */
 function concluirDebate(jogo, s) {
   var ids = s.participantes;
-  var perc = jogo.percepcao || {};
+  var perc = percDoEscopo(jogo, s.escopo);
   var medias = {};
   ids.forEach(function (id) { medias[id] = mediaDebate(s, id); });
   var media = soma(ids.map(function (id) { return medias[id]; })) / ids.length;
@@ -324,14 +337,14 @@ function concluirDebate(jogo, s) {
     if (res.quemVenceu[id] > vmax) { vmax = res.quemVenceu[id]; vencedor = id; }
     var delta = (medias[id] - media) / 8 * audf;
     c.imagem += delta;
-    UFS.forEach(function (u) { crescerRecog(c, u, 0.035 * audf); });
+    crescerRecogTodos(c, 0.035 * audf);
     c.preparo = 0;
     c.stats.debates.push({ dia: s.dia, media: medias[id], pct: res.quemVenceu[id] });
     res.efeitos[id] = delta;
     res.medias = medias;
   });
   // candidatos fora do debate perdem visibilidade
-  candidatosAtivos(jogo).forEach(function (c) { if (ids.indexOf(c.id) < 0) c.imagem -= 0.02; });
+  candsDoEscopo(jogo, s.escopo).forEach(function (c) { if (ids.indexOf(c.id) < 0) c.imagem -= 0.02; });
   res.vencedor = vencedor;
   s.resultado = res;
   jogo.debatesFeitos.push(s.dia);

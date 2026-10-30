@@ -7,7 +7,7 @@ var UI = {
   ufSel: null,
   acaoSel: null,
   formAcao: {},
-  config: { ritmo: 'semanal', dificuldade: 'normal', ano: 2026 },
+  config: { ritmo: 'semanal', dificuldade: 'normal', ano: 2026, cargo: 'presidente', uf: 'SP' },
   escolha: null,
   criar: null,
   pre: {},

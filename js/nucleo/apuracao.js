@@ -52,13 +52,10 @@ function calcularResultado(jogo, turno) {
       });
       fracUrb[id] = t > 0 ? u / t : e.urb;
     });
-    var regAtraso = { N: 38, NE: 18, CO: 10, SE: 0, S: 0, EX: 0 }[e.reg];
-    var tU = e.uf === 'ZZ' ? 190 : 52 + 11 * Math.log(1 + e.eleitores) + randn() * 8;
-    var tR = e.uf === 'ZZ' ? 210 : tU + 24 + regAtraso + randn() * 7;
     res.uf[e.uf] = {
       aptos: aptos, comparecimento: comp, abstencao: aptos - comp, brancos: brancos, nulos: nulos, validos: validos,
       votos: votos, fracUrb: fracUrb, urb: e.urb,
-      tempo: { tU: tU, tR: tR, wU: 16 + rand() * 4, wR: 20 + rand() * 6 }
+      tempo: gerarTempoUF(e)
     };
     nac.aptos += aptos; nac.comparecimento += comp; nac.brancos += brancos; nac.nulos += nulos; nac.validos += validos;
     ids.forEach(function (id) { nac.votos[id] += votos[id]; });

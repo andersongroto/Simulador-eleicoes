@@ -96,3 +96,11 @@ ESTADOS.forEach(function (e) { ESTADO_POR_UF[e.uf] = e; });
 var UFS = ESTADOS.map(function (e) { return e.uf; });
 var UFS_MAPA = UFS.filter(function (u) { return u !== 'ZZ'; });
 var TOTAL_ELEITORES = ESTADOS.reduce(function (a, e) { return a + e.eleitores; }, 0);
+
+/* Nome do estado com a preposição contraída: prepUF('BA', 'em') → "na Bahia". */
+var ARTIGO_UF = { AC: 'o', AP: 'o', AM: 'o', CE: 'o', DF: 'o', ES: 'o', MA: 'o', PA: 'o', PR: 'o', PI: 'o', RJ: 'o', RN: 'o', RS: 'o', TO: 'o', ZZ: 'o', BA: 'a', PB: 'a' };
+var CONTRACOES = { em: { o: 'no', a: 'na' }, de: { o: 'do', a: 'da' }, por: { o: 'pelo', a: 'pela' } };
+function prepUF(uf, prep) {
+  var art = ARTIGO_UF[uf];
+  return (art ? CONTRACOES[prep][art] : prep) + ' ' + ESTADO_POR_UF[uf].nome;
+}

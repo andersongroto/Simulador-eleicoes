@@ -45,7 +45,8 @@ function graficoLinhas(cfg) {
   rotulados.forEach(function (f) {
     var lx = W - mR + 10;
     if (Math.abs(f.ly - f.y) > 2) partes.push('<line x1="' + (f.x + 5) + '" y1="' + f.y + '" x2="' + (lx - 2) + '" y2="' + f.ly + '" stroke="' + f.s.cor + '" stroke-width="1"></line>');
-    partes.push('<text class="rot-fim" x="' + lx + '" y="' + (f.ly + 4) + '">' + esc(f.s.nome) + ' ' + fmtNum(f.v, 0) + '%</text>');
+    var nm = f.s.nome.length > 13 ? f.s.nome.split(' ').slice(-1)[0].slice(0, 12) : f.s.nome;
+    partes.push('<text class="rot-fim" x="' + lx + '" y="' + (f.ly + 4) + '">' + esc(nm) + ' ' + fmtNum(f.v, 0) + '%</text>');
   });
   partes.push('<line class="mira" x1="0" x2="0" y1="' + mT + '" y2="' + (H - mB) + '" style="display:none"></line>');
   partes.push('<rect x="' + mL + '" y="' + mT + '" width="' + (W - mL - mR) + '" height="' + (H - mT - mB) + '" fill="transparent" class="area-hover"></rect>');

@@ -66,7 +66,7 @@ function definicaoCriada(d, dif) {
   return {
     id: 'jogador', nome: d.nome, urna: d.urna || d.nome.split(' ')[0], genero: d.genero, idade: d.idade,
     partido: d.partido, uf: d.uf, trajetoria: d.trajetoria,
-    bio: traj.nome + ' de ' + ESTADO_POR_UF[d.uf].nome + ', ' + d.idade + ' anos.',
+    bio: traj.nome + ' ' + prepUF(d.uf, 'de') + ', ' + d.idade + ' anos.',
     slogan: d.slogan || '', x: d.x, attr: attr, recog: clamp(8 + traj.recogNac + dif.recog, 3, 70),
     recogUF: traj.recogUF, cred: cred, segAff: copiar(traj.segAff || {}),
     situacao: d.partido === 'FPT', coligacao: [d.partido], cor: 8, estilo: 'propositivo',
@@ -80,8 +80,9 @@ function novoJogo(config, escolha) {
   semear(seed);
   var dif = DIFICULDADES[config.dificuldade] || DIFICULDADES.normal;
   var jogo = {
-    versao: 1, seed: seed, rng: RNG.estado,
+    versao: 2, seed: seed, rng: RNG.estado,
     config: { ritmo: config.ritmo, dificuldade: config.dificuldade, ano: config.ano || 2026 },
+    cargo: config.cargo || 'presidente', ufJogador: config.uf || null,
     cal: montarCalendario(config.ano || 2026),
     fase: 'precampanha', etapaPre: 'vice',
     dia: 0, turnoIdx: 0, turnos: [],
@@ -96,8 +97,10 @@ function novoJogo(config, escolha) {
   };
 
   var defs = CANDIDATOS_PRONTOS.map(function (d) { return copiar(d); });
-  var defJog;
-  if (escolha.tipo === 'pronto') {
+  var defJog = null;
+  if (escolha.tipo === 'estadual') {
+    jogo.jogadorId = null;
+  } else if (escolha.tipo === 'pronto') {
     defJog = defs.filter(function (d) { return d.id === escolha.id; })[0];
     jogo.jogadorId = defJog.id;
   } else {
@@ -113,13 +116,15 @@ function novoJogo(config, escolha) {
     defs.forEach(function (d) { d.coligacao = d.coligacao.filter(function (s) { return s !== defJog.partido; }); });
     defs.push(defJog);
   }
-  defJog.recog = clamp(defJog.recog + dif.recog, 3, 95);
+  if (defJog) defJog.recog = clamp(defJog.recog + dif.recog, 3, 95);
 
   jogo.candidatos = defs.map(function (d) { return montarCandidato(d, jogo, d === defJog); });
   jogo.candidatos.sort(function (a, b) { return a.cor - b.cor; });
-  var jog = candPorId(jogo, jogo.jogadorId);
-  jog.dinheiroExtra = defJog.dinheiroExtra || 0;
-  jog.vice = null;
+  if (defJog) {
+    var jog = candPorId(jogo, jogo.jogadorId);
+    jog.dinheiroExtra = defJog.dinheiroExtra || 0;
+    jog.vice = null;
+  }
 
   // Partidos: quem apoia quem
   PARTIDOS.forEach(function (p) { jogo.partidos[p.sigla] = null; });
@@ -143,8 +148,20 @@ function novoJogo(config, escolha) {
     }
   });
 
+  // Disputas estaduais (governador, Senado e deputados)
+  atualizarCache(jogo);
+  gerarEleicoesEstaduais(jogo);
+  if (escolha.tipo === 'estadual') criarJogadorEstadual(jogo, escolha.dados);
+  calibrarPartidos(jogo);
+  if (jogo.cargo !== 'presidente') jogo.etapaPre = jogo.cargo === 'governador' ? 'vice' : (jogo.cargo === 'senador' ? 'coligacao' : 'dobrada');
+
   jogo.rng = RNG.estado;
   return jogo;
+}
+
+function jogadorPres(jogo) {
+  var c = jogador(jogo);
+  return c && c.escopo !== 'estadual' ? c : null;
 }
 
 /* Governadores apoiam o candidato da coligação do seu partido. */

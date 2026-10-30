@@ -58,6 +58,7 @@ function candidatosAtivos(jogo) {
 }
 function candPorId(jogo, id) {
   for (var i = 0; i < jogo.candidatos.length; i++) if (jogo.candidatos[i].id === id) return jogo.candidatos[i];
+  if (jogo.est && jogo.est.cands[id]) return jogo.est.cands[id];
   return null;
 }
 

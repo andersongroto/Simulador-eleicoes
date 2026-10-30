@@ -58,7 +58,7 @@ var ACOES = {
     nome: 'Comício', cat: 'rua', energia: 12,
     desc: 'Grande ato público num estado. Aumenta muito a presença e o conhecimento local.',
     custo: function (jogo, c, p) { return 0.5 + 0.06 * Math.pow(ESTADO_POR_UF[p.uf].eleitores, 0.7) + custoDeslocamento(c, p.uf); },
-    rotulo: function (p) { return 'Comício em ' + ESTADO_POR_UF[p.uf].nome + (p.tema ? ' · ' + TEMAS[p.tema].curto : ''); },
+    rotulo: function (p) { return 'Comício ' + prepUF(p.uf, 'em') + (p.tema ? ' · ' + TEMAS[p.tema].curto : ''); },
     executar: function (jogo, c, p, ef) {
       var uf = p.uf, e = ESTADO_POR_UF[uf];
       var forca = ef * (0.75 + 0.5 * c.attr.carisma / 100);
@@ -70,6 +70,8 @@ var ACOES = {
       c.local = uf;
       c.stats.comicios++;
       c.stats.estados[uf] = (c.stats.estados[uf] || 0) + 1;
+      var aliado = jogo.est ? palanqueNoEstado(jogo, uf, c.id) : null;
+      if (aliado) ZONAS.forEach(function (z) { aliado.presenca[z] = Math.min(100, aliado.presenca[z] + 4 * forca); crescerRecogZ(aliado, z, 0.02 * forca); });
       var r = rand();
       if (r < 0.08 + (c.energia < 25 ? 0.08 : 0)) {
         c.imagem -= 0.035;
@@ -82,11 +84,30 @@ var ACOES = {
       return { tipo: 'neutro', texto: 'Comício em ' + e.capital + ' reúne militância e lideranças locais.' };
     }
   },
+  comicioConjunto: {
+    nome: 'Comício com aliado', cat: 'rua', energia: 13, presidencial: true,
+    desc: 'Ato ao lado do seu candidato a governador no estado. Fortalece os dois palanques.',
+    custo: function (jogo, c, p) { return ACOES.comicio.custo(jogo, c, p) + 0.15; },
+    rotulo: function (p, jogo) {
+      var al = jogo && jogo.est ? palanqueNoEstado(jogo, p.uf, jogo.jogadorId) : null;
+      return 'Comício ' + prepUF(p.uf, 'em') + (al ? ' com ' + al.urna : '');
+    },
+    executar: function (jogo, c, p, ef) {
+      var r = ACOES.comicio.executar(jogo, c, p, ef);
+      var al = palanqueNoEstado(jogo, p.uf, c.id);
+      if (!al) return r;
+      ZONAS.forEach(function (z) { al.presenca[z] = Math.min(100, al.presenca[z] + 10 * ef); crescerRecogZ(al, z, 0.05 * ef); });
+      al.imagem += 0.02 * ef;
+      al.palanqueOficial = true;
+      r.texto += ' ' + al.urna + ' (' + nomeCargo('governador', al.genero).toLowerCase() + ') divide o palanque.';
+      return r;
+    }
+  },
   carreata: {
     nome: 'Carreata e caminhada', cat: 'rua', energia: 8,
     desc: 'Corpo a corpo nas ruas. Mais barato que um comício, com apelo popular.',
     custo: function (jogo, c, p) { return 0.25 + 0.02 * Math.pow(ESTADO_POR_UF[p.uf].eleitores, 0.7) + custoDeslocamento(c, p.uf) * 0.7; },
-    rotulo: function (p) { return 'Carreata em ' + ESTADO_POR_UF[p.uf].nome; },
+    rotulo: function (p) { return 'Carreata ' + prepUF(p.uf, 'em'); },
     executar: function (jogo, c, p, ef) {
       var uf = p.uf;
       c.presenca[uf] = Math.min(100, c.presenca[uf] + 11 * ef * (1 - c.presenca[uf] / 150));
@@ -109,7 +130,7 @@ var ACOES = {
       crescerRecog(c, uf, 0.03 * ef);
       c.local = uf;
       c.stats.estados[uf] = (c.stats.estados[uf] || 0) + 1;
-      return { tipo: 'neutro', texto: NOMES_VISITA[p.seg] + ' em ' + ESTADO_POR_UF[uf].nome + ' aproxima a campanha do eleitorado ' + SEGMENTOS[p.seg].curto.toLowerCase() + '.' };
+      return { tipo: 'neutro', texto: NOMES_VISITA[p.seg] + ' ' + prepUF(uf, 'em') + ' aproxima a campanha do eleitorado ' + SEGMENTOS[p.seg].curto.toLowerCase() + '.' };
     }
   },
   entrevista: {

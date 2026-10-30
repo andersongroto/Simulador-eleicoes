@@ -1,9 +1,13 @@
 /* Painel principal da campanha: topo, mapa, abas, agenda e resumo das rodadas. */
 
 var ABAS = [
-  ['agenda', 'Agenda'], ['pesquisas', 'Pesquisas'], ['apoios', 'Apoios'],
+  ['agenda', 'Agenda'], ['pesquisas', 'Pesquisas'], ['apoios', 'Apoios'], ['estados', 'Palanques'],
   ['estrategia', 'TV e programa'], ['noticias', 'Notícias'], ['adversarios', 'Adversários']
 ];
+
+function ehEstadual() { var c = JOGO && jogador(JOGO); return !!(c && c.escopo === 'estadual'); }
+function defAcao(t) { return ehEstadual() ? ACOES_EST[t] : ACOES[t]; }
+function rotuloAcao(a) { return ehEstadual() ? ACOES_EST[a.tipo].rotulo(a.p, jogador(JOGO), JOGO) : ACOES[a.tipo].rotulo(a.p, JOGO); }
 
 var MODOS_MAPA = [['lider', 'Líder estimado'], ['voce', 'Sua intenção'], ['presenca', 'Sua presença'], ['eleitores', 'Eleitorado'], ['governadores', 'Governadores']];
 
@@ -120,10 +124,12 @@ function custoPlanejado() {
   var localOrig = c.local, t = 0, en = c.energia;
   var esc2 = escalaRitmo(JOGO);
   JOGO.agenda.forEach(function (a) {
-    var custo = ACOES[a.tipo].custo(JOGO, c, a.p);
+    var def = defAcao(a.tipo);
+    var custo = def.custo(JOGO, c, a.p);
     t += custo;
-    if (a.p.uf && (a.tipo === 'comicio' || a.tipo === 'carreata' || a.tipo === 'visita')) c.local = a.p.uf;
-    en -= ACOES[a.tipo].energia * esc2;
+    if (a.p.uf && (a.tipo === 'comicio' || a.tipo === 'carreata' || a.tipo === 'visita' || a.tipo === 'comicioConjunto')) c.local = a.p.uf;
+    if (a.p.zona) c.local = a.p.zona;
+    en -= def.energia * esc2;
   });
   c.local = localOrig;
   var dias = turnoAtual(JOGO)[1] - turnoAtual(JOGO)[0] + 1;
@@ -156,11 +162,15 @@ function formAcao() {
   var t = UI.acaoSel, f = UI.formAcao, c = jogador(JOGO), def = ACOES[t];
   var campos = '';
   var sel = function (k, opts) { return '<select id="fa-' + k + '" data-mudar="campoAcao" data-k="' + k + '">' + opts + '</select>'; };
-  if (t === 'comicio' || t === 'carreata' || t === 'visita') {
+  if (t === 'comicio' || t === 'carreata' || t === 'visita' || t === 'comicioConjunto') {
     f.uf = f.uf || UI.ufSel || c.uf;
     campos += '<div class="campo"><label for="fa-uf">Estado</label>' + sel('uf', opcoesUF(f.uf)) + '</div>';
   }
-  if (t === 'comicio') {
+  if (t === 'comicioConjunto') {
+    var al = palanqueNoEstado(JOGO, f.uf, c.id);
+    campos += '<p class="pequeno ' + (al ? 'sec' : 'ruim') + '">' + (al ? 'Seu aliado no estado: ' + esc(al.urna) + ' (' + al.partido + '), candidat' + oa(al) + ' a governador.' : 'Você não tem candidato a governador aliado neste estado. O ato vale como comício comum.') + '</p>';
+  }
+  if (t === 'comicio' || t === 'comicioConjunto') {
     f.tema = f.tema || c.bandeiras[0] || 'economia';
     campos += '<div class="campo"><label for="fa-tema">Tema do discurso</label>' + sel('tema', TEMA_IDS.map(function (k) { return '<option value="' + k + '"' + (k === f.tema ? ' selected' : '') + '>' + TEMAS[k].nome + '</option>'; }).join('')) + '</div>';
   }
@@ -238,7 +248,7 @@ function jogo_apoioDe(id) { return JOGO.apoios[id]; }
 function paramsDoForm(t) {
   var f = UI.formAcao;
   switch (t) {
-    case 'comicio': return { uf: f.uf, tema: f.tema };
+    case 'comicio': case 'comicioConjunto': return { uf: f.uf, tema: f.tema };
     case 'carreata': return { uf: f.uf };
     case 'visita': return { uf: f.uf, seg: f.seg };
     case 'entrevista': case 'arrecadar': return { reg: f.reg };
@@ -254,6 +264,7 @@ ACOES_UI.prepAcao = function (d) {
   UI.acaoSel = d.t;
   UI.formAcao = UI.formAcao || {};
   if (d.uf) { UI.formAcao.uf = d.uf; UI.ufSel = d.uf; }
+  if (d.zona) UI.formAcao.zona = d.zona;
   if (d.alvo) UI.formAcao.alvo = d.alvo;
   if (d.id) UI.formAcao.id = d.id;
   if (d.t === 'apoio' && !d.alvo && UI.formAcao.alvo && UI.formAcao.alvo.indexOf('gov:') !== 0 && !APOIO_POR_ID[UI.formAcao.alvo]) UI.formAcao.alvo = null;
@@ -272,7 +283,7 @@ ACOES_UI.cancelarAcao = function () { UI.acaoSel = null; atualizar(); };
 ACOES_UI.addAcao = function () {
   var t = UI.acaoSel;
   if (JOGO.agenda.length >= slotsDoTurno(JOGO)) return;
-  JOGO.agenda.push({ tipo: t, p: paramsDoForm(t) });
+  JOGO.agenda.push({ tipo: t, p: ehEstadual() ? paramsDoFormEst(t) : paramsDoForm(t) });
   if (t === 'proposta' || t === 'apoio' || t === 'preparar' || t === 'descanso') UI.acaoSel = null;
   atualizar();
 };
@@ -280,7 +291,9 @@ ACOES_UI.remAcao = function (d) { JOGO.agenda.splice(+d.i, 1); atualizar(); };
 ACOES_UI.sugerirAgenda = function () {
   var livres = slotsDoTurno(JOGO) - JOGO.agenda.length;
   if (livres <= 0) return;
-  var sug = iaEscolherAcoes(JOGO, jogador(JOGO), livres);
+  var sug = [];
+  if (ehEstadual()) for (var i = 0; i < livres; i++) sug.push(iaAcaoEst(JOGO, jogador(JOGO)));
+  else sug = iaEscolherAcoes(JOGO, jogador(JOGO), livres);
   sug.forEach(function (a) { JOGO.agenda.push({ tipo: a.tipo, p: a.p }); });
   toast('A coordenação de campanha preencheu ' + livres + ' compromisso(s). Revise antes de confirmar.');
   atualizar();
@@ -295,7 +308,7 @@ function docaAgenda() {
   for (var i = 0; i < n; i++) {
     var a = JOGO.agenda[i];
     if (a) {
-      var rot = ACOES[a.tipo].rotulo(a.p, JOGO);
+      var rot = rotuloAcao(a);
       slots.push('<div class="slot cheio"><span class="dia">' + (JOGO.config.ritmo === 'diario' ? (i === 0 ? 'Manhã' : 'Tarde e noite') : fmtData(JOGO.cal, dias[i])) + '</span><span class="tit">' + esc(rot) + '</span><button class="x" data-a="remAcao" data-i="' + i + '" aria-label="Remover">×</button></div>');
     } else {
       slots.push('<div class="slot"><span class="dia">Livre</span><span>Escolha uma ação</span></div>');
@@ -524,7 +537,8 @@ function abaAdversarios() {
 
 /* ---------- Tela ---------- */
 TELAS.campanha = function () {
-  var conteudo = { agenda: abaAgenda, pesquisas: abaPesquisas, apoios: abaApoios, estrategia: abaEstrategia, noticias: abaNoticias, adversarios: abaAdversarios }[UI.aba]();
+  if (ehEstadual()) return TELAS.campanhaEst();
+  var conteudo = { agenda: abaAgenda, pesquisas: abaPesquisas, apoios: abaApoios, estrategia: abaEstrategia, noticias: abaNoticias, adversarios: abaAdversarios, estados: abaPalanques }[UI.aba]();
   return topoCampanha() +
     '<main class="mesa gutter"><div class="col-mapa">' + blocoMapa() + '</div>' +
     '<div class="col-acoes"><section class="painel"><nav class="abas" role="tablist">' + ABAS.map(function (a) {
@@ -533,6 +547,7 @@ TELAS.campanha = function () {
     docaAgenda();
 };
 TELAS.campanha_depois = function () {
+  if (ehEstadual()) { TELAS.campanhaEst_depois(); return; }
   ligarGraficos();
   ligarDicasMapa(document.getElementById('caixa-mapa'), dicaMapa);
 };
@@ -584,13 +599,14 @@ function montarResumoRodada(t) {
   var ini = JOGO.resumoInicio || { noticias: 0, pesquisas: 0, percepcao: {} };
   var minhas = (JOGO.resultadosTurno || []).filter(function (r) { return r.tipo === 'acao'; });
   var pesq = JOGO.pesquisas.slice(ini.pesquisas).filter(function (p) { return p.res; });
-  var antes = ini.percepcao[c.id], depois = JOGO.percepcao[c.id];
-  var delta = antes !== undefined ? depois - antes : 0;
+  var med = medidaJogador(JOGO);
+  var antes = ini.minha, depois = med.valor;
+  var delta = antes !== undefined && antes !== null ? depois - antes : 0;
   var noticias = JOGO.noticias.slice(ini.noticias).filter(function (n) { return n.tipo !== 'pesquisa'; }).slice(-8).reverse();
   var titulo = JOGO.config.ritmo === 'diario' ? 'Balanço do dia · ' + fmtData(JOGO.cal, t[0]) : 'Balanço da semana · ' + fmtDataCurta(JOGO.cal, t[0]) + ' a ' + fmtDataCurta(JOGO.cal, t[1]);
   var gasto = ini.dinheiro !== undefined ? ini.dinheiro - c.dinheiro : 0;
   var html = '<div class="modal-topo"><span class="rotulo">' + (JOGO.fase === 'campanha2' ? '2º turno' : '1º turno') + '</span><h2>' + titulo + '</h2></div><div class="modal-corpo pilha">';
-  html += '<div class="resumo-votos"><div class="it"><span class="rotulo">Média nas pesquisas</span><span class="v">' + fmtNum(depois || 0, 1) + '% <span class="' + (delta >= 0 ? 'bom' : 'ruim') + '">(' + fmtSinal(delta) + ')</span></span></div>' +
+  html += '<div class="resumo-votos"><div class="it"><span class="rotulo">' + med.rotulo + '</span><span class="v">' + med.fmt(depois || 0) + ' <span class="' + (delta >= 0 ? 'bom' : 'ruim') + '">(' + (med.votos ? (delta >= 0 ? '+' : '−') + fmtVotos(Math.abs(delta)) : fmtSinal(delta)) + ')</span></span></div>' +
     '<div class="it"><span class="rotulo">Caixa</span><span class="v">' + fmtDinheiro(c.dinheiro) + ' <span class="mudo">(' + (gasto >= 0 ? '−' : '+') + fmtDinheiro(Math.abs(gasto)) + ')</span></span></div>' +
     '<div class="it"><span class="rotulo">Energia</span><span class="v">' + Math.round(c.energia) + '%</span></div></div>';
   if (minhas.length) html += '<div><h4>Sua agenda</h4><ul class="pequeno" style="margin:6px 0 0;padding-left:18px">' + minhas.map(function (m) {
